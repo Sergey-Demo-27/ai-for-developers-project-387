@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Container, Grid, Paper, Stack, Text, Title } from '@mantine/core'
+import { Alert, Container, Grid, Paper, Stack, Text, Title } from '@mantine/core'
 import {
   errorMessage,
   eventTypeSlotsList,
@@ -7,8 +7,13 @@ import {
   unwrap,
 } from '../../../shared/api'
 import type { Day, EventType, Slot } from '../../../shared/api'
+import { currentTimeString, todayString } from '../../../shared/lib'
 import { ListState } from '../../../shared/ui'
-import { countAvailable, firstAvailableDate } from '../lib/slots'
+import {
+  countAvailable,
+  firstAvailableDate,
+  isSlotFree,
+} from '../lib/slots'
 import { BookingActions } from './BookingActions'
 import { CalendarPanel } from './CalendarPanel'
 import { ConfirmPanel } from './ConfirmPanel'
@@ -42,12 +47,31 @@ export function BookingPage() {
   const [guestName, setGuestName] = useState('')
   const [guestEmail, setGuestEmail] = useState('')
 
+  // Текущий момент — состояние, а не снимок при рендере: тик перерисовывает
+  // страницу, и прошедшие слоты перестают быть свободными без перезагрузки.
+  const [now, setNow] = useState(() => new Date())
+  const today = todayString(now)
+  const nowTime = currentTimeString(now)
+
   const slotsRequestId = useRef(0)
+  // Дата, для которой загружена текущая сетка: после полуночи окно записи
+  // сдвигается, и его нужно запросить заново.
+  const loadedDate = useRef<string | null>(null)
+  const selectedDateRef = useRef<string | null>(null)
 
   const selectedEventType =
     eventTypes.find((eventType) => eventType.id === selectedEventTypeId) ?? null
   const selectedDay =
     slotsDays.find((day) => day.date === selectedDate) ?? null
+  // Выбранный слот действителен, только пока он свободен по текущему времени.
+  // Истёкший слот не считается выбранным: «Продолжить» гаснет, а панель
+  // «Информация» показывает «Время не выбрано».
+  const activeSlot =
+    selectedSlot !== null &&
+    selectedDate !== null &&
+    isSlotFree(selectedSlot, selectedDate, today, nowTime)
+      ? selectedSlot
+      : null
 
   // Первый setState — уже после `await`: правило react(set-state-in-effect)
   // не срабатывает.
@@ -63,30 +87,56 @@ export function BookingPage() {
     }
   }, [])
 
-  const loadSlots = useCallback(async (id: number) => {
-    // Номер запроса: при быстрой смене типа ответ на прежний тип приходит позже
-    // и не должен перетирать сетку нового.
-    const requestId = slotsRequestId.current + 1
-    slotsRequestId.current = requestId
+  const loadSlots = useCallback(
+    async (id: number, { silent = false }: { silent?: boolean } = {}) => {
+      // Номер запроса: при быстрой смене типа ответ на прежний тип приходит позже
+      // и не должен перетирать сетку нового.
+      const requestId = slotsRequestId.current + 1
+      slotsRequestId.current = requestId
 
-    try {
-      const data = await unwrap(
-        eventTypeSlotsList({ path: { id: String(id) }, throwOnError: true }),
-      )
-      if (requestId !== slotsRequestId.current) return
+      try {
+        const data = await unwrap(
+          eventTypeSlotsList({ path: { id: String(id) }, throwOnError: true }),
+        )
+        if (requestId !== slotsRequestId.current) return
 
-      setSlotsDays(data.days)
-      // Дата подсвечивается сама, только если ещё не выбрана: смена типа
-      // сохраняет выбранную дату, а слот сбрасывает.
-      setSelectedDate((previous) => previous ?? firstAvailableDate(data.days))
-      setSlotsError(null)
-    } catch (caught) {
-      if (requestId !== slotsRequestId.current) return
-      setSlotsError(errorMessage(caught, 'Не удалось загрузить слоты'))
-    } finally {
-      if (requestId === slotsRequestId.current) setSlotsLoading(false)
-    }
-  }, [])
+        // Свежий момент после ответа: дата подсветки и часы не расходятся.
+        const loadedAt = new Date()
+        const loadedToday = todayString(loadedAt)
+        const loadedNow = currentTimeString(loadedAt)
+
+        setSlotsDays(data.days)
+        setNow(loadedAt)
+        loadedDate.current = loadedToday
+
+        // Дата подсвечивается сама, только если ещё не выбрана: смена типа
+        // сохраняет выбранную дату, а слот сбрасывает. После полуночи прежняя
+        // дата выпадает из окна — берём первый свободный день нового окна.
+        const previousDate = selectedDateRef.current
+        const nextDate =
+          previousDate !== null &&
+          data.days.some((day) => day.date === previousDate)
+            ? previousDate
+            : firstAvailableDate(data.days, loadedToday, loadedNow)
+
+        if (nextDate !== previousDate) {
+          selectedDateRef.current = nextDate
+          setSelectedSlot(null)
+        }
+        setSelectedDate(nextDate)
+        setSlotsError(null)
+      } catch (caught) {
+        if (requestId !== slotsRequestId.current) return
+        // Фоновое обновление не затирает рабочую сетку ошибкой.
+        if (!silent) {
+          setSlotsError(errorMessage(caught, 'Не удалось загрузить слоты'))
+        }
+      } finally {
+        if (requestId === slotsRequestId.current) setSlotsLoading(false)
+      }
+    },
+    [],
+  )
 
   const reloadEventTypes = useCallback(() => {
     setTypesLoading(true)
@@ -139,8 +189,17 @@ export function BookingPage() {
   )
 
   const selectDate = useCallback((date: string) => {
+    selectedDateRef.current = date
     setSelectedDate(date)
     setSelectedSlot(null)
+    setStep('select')
+  }, [])
+
+  // Выбор слота всегда возвращает на шаг выбора: после истечения слота на
+  // подтверждении «Продолжить» нужно нажать заново.
+  const selectSlot = useCallback((slot: Slot) => {
+    setSelectedSlot(slot)
+    setStep('select')
   }, [])
 
   // Значения формы подтверждения поднимаются на страницу, чтобы пережить
@@ -164,12 +223,47 @@ export function BookingPage() {
     void loadSlots(selectedEventTypeId)
   }, [selectedEventTypeId, loadSlots])
 
-  const freeCount = selectedDay ? countAvailable(selectedDay) : 0
+  // Часы страницы: не реже раза в минуту пересчитываем свободность слотов.
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  // Полночь: окно записи сдвинулось — при следующем тике перезапрашиваем сетку.
+  useEffect(() => {
+    if (selectedEventTypeId === null) return
+    if (loadedDate.current === null || loadedDate.current === today) return
+    // oxlint-disable-next-line react/set-state-in-effect -- состояние ставится уже после await фонового запроса
+    void loadSlots(selectedEventTypeId, { silent: true })
+  }, [today, selectedEventTypeId, loadSlots])
+
+  // Возврат фокуса или видимости вкладки: обновляем часы и занятость без
+  // спиннера. Сбой фонового запроса не затирает рабочую сетку ошибкой.
+  useEffect(() => {
+    const refresh = () => {
+      setNow(new Date())
+      if (selectedEventTypeId === null) return
+      void loadSlots(selectedEventTypeId, { silent: true })
+    }
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [loadSlots, selectedEventTypeId])
+
+  // Слот истёк, пока гость был на подтверждении: форма возвращается к выбору
+  // слота с понятным сообщением, имя и email остаются в состоянии страницы.
+  const expiredOnConfirm =
+    step === 'confirm' && selectedSlot !== null && activeSlot === null
+  const freeCount = selectedDay ? countAvailable(selectedDay, today, nowTime) : 0
   const canContinue =
-    selectedEventType !== null &&
-    selectedDate !== null &&
-    selectedSlot !== null &&
-    selectedSlot.available
+    selectedEventType !== null && selectedDate !== null && activeSlot !== null
 
   return (
     <Container component="main" size="lg" py="xl">
@@ -194,7 +288,7 @@ export function BookingPage() {
             <InfoPanel
               eventType={selectedEventType}
               selectedDate={selectedDate}
-              selectedSlot={selectedSlot}
+              selectedSlot={activeSlot}
               freeCount={freeCount}
             />
           </Grid.Col>
@@ -211,11 +305,11 @@ export function BookingPage() {
               <SuccessPanel onBookAgain={handleBookAgain} />
             ) : step === 'confirm' &&
               selectedDate !== null &&
-              selectedSlot !== null ? (
+              activeSlot !== null ? (
               <ConfirmPanel
                 eventType={selectedEventType}
                 date={selectedDate}
-                slot={selectedSlot}
+                slot={activeSlot}
                 guestName={guestName}
                 guestEmail={guestEmail}
                 onGuestChange={handleGuestChange}
@@ -224,31 +318,42 @@ export function BookingPage() {
                 onSuccess={handleSuccess}
               />
             ) : (
-              <ListState
-                loading={slotsLoading}
-                error={slotsError}
-                onRetry={reloadSlots}
-              >
-                <Grid>
-                  <Grid.Col span={{ base: 12, sm: 6 }}>
-                    <CalendarPanel
-                      days={slotsDays}
-                      selectedDate={selectedDate}
-                      onSelectDate={selectDate}
-                    />
-                  </Grid.Col>
-                  <Grid.Col span={{ base: 12, sm: 6 }}>
-                    <SlotsPanel
-                      day={selectedDay}
-                      selectedDate={selectedDate}
-                      selectedSlot={selectedSlot}
-                      onSelectSlot={setSelectedSlot}
-                      canContinue={canContinue}
-                      onContinue={() => setStep('confirm')}
-                    />
-                  </Grid.Col>
-                </Grid>
-              </ListState>
+              <Stack gap="md">
+                {expiredOnConfirm && (
+                  <Alert color="yellow" title="Время слота прошло">
+                    Это время уже прошло. Выберите другой слот.
+                  </Alert>
+                )}
+                <ListState
+                  loading={slotsLoading}
+                  error={slotsError}
+                  onRetry={reloadSlots}
+                >
+                  <Grid>
+                    <Grid.Col span={{ base: 12, sm: 6 }}>
+                      <CalendarPanel
+                        days={slotsDays}
+                        selectedDate={selectedDate}
+                        onSelectDate={selectDate}
+                        today={today}
+                        now={nowTime}
+                      />
+                    </Grid.Col>
+                    <Grid.Col span={{ base: 12, sm: 6 }}>
+                      <SlotsPanel
+                        day={selectedDay}
+                        selectedDate={selectedDate}
+                        selectedSlot={activeSlot}
+                        onSelectSlot={selectSlot}
+                        canContinue={canContinue}
+                        onContinue={() => setStep('confirm')}
+                        today={today}
+                        now={nowTime}
+                      />
+                    </Grid.Col>
+                  </Grid>
+                </ListState>
+              </Stack>
             )}
           </Grid.Col>
         </Grid>
