@@ -383,7 +383,7 @@ GitHub всё равно создаёт run на каждый комментар
 | [`opencode.yml`](./.github/workflows/opencode.yml) | `issue_comment`, `pull_request_review_comment`; команда `/oc`; автор — OWNER/MEMBER/COLLABORATOR; не бот | `opencode/deepseek-v4.1-flash`, агент по умолчанию | выполняет задачу из issue, правит PR по замечаниям, создаёт коммиты и PR | `contents: read`, `id-token: write` | [Actions → opencode](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/opencode.yml) |
 | [`opencode-triage.yml`](./.github/workflows/opencode-triage.yml) | `issues: opened`; issue не от бота | `opencode/deepseek-v4.1-flash` | разбор новой issue и комментарий с планом; код не меняет | `contents: read`, `id-token: write` | [Actions → Issue triage](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/opencode-triage.yml) |
 | [`opencode-review.yml`](./.github/workflows/opencode-review.yml) | `pull_request`: `opened`, `synchronize`, `reopened`, `ready_for_review`; не draft, не форк, не посторонний бот | `opencode/deepseek-v4.1-flash` | авторевью PR, один общий комментарий; не одобряет и не мержит | `contents: read`, `id-token: write` | [Actions → opencode-review](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/opencode-review.yml) |
-| [`scheduled-audit.yml`](./.github/workflows/scheduled-audit.yml) | `schedule` (`17 3 * * *` UTC), `workflow_dispatch` | `opencode/deepseek-v4.1-flash`, агент `audit` | Lighthouse, разбор отчёта, issue с меткой `lighthouse-audit` | `contents: read`, `issues: write` | [Actions → Scheduled Lighthouse audit](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/scheduled-audit.yml) |
+| [`scheduled-audit.yml`](./.github/workflows/scheduled-audit.yml) | `schedule` (`17 3 * * *` UTC), `workflow_dispatch`; dispatch не от бота | `opencode/deepseek-v4.1-flash`, агент `audit` | Lighthouse, разбор отчёта, issue с меткой `lighthouse-audit` | `contents: read`, `id-token: write`, `issues: write`, `pull-requests: write` | [Actions → Scheduled Lighthouse audit](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/scheduled-audit.yml) |
 
 Ссылку на конкретный прогон агент добавляет в свой комментарий (`github run`).
 Логи и артефакты — на странице нужного workflow во вкладке **Actions**.
@@ -399,8 +399,13 @@ GitHub всё равно создаёт run на каждый комментар
   коммиты и PR;
 - `contents: write`, `pull-requests: write` и `issues: write` в интерактивных
   воркфлоу поэтому не нужны;
+- `id-token: write` есть и у планового аудита: правило «id-token везде»
+  действует для всех агентских воркфлоу, даже если текущий `audit` работает
+  через `OPENCODE_API_KEY`, а не через OpenCode App;
 - единственное место с записью через `GITHUB_TOKEN` — `scheduled-audit.yml`:
-  `issues: write` нужен шагу, который создаёт или обновляет issue. Сам агент
+  `issues: write` нужен шагу, который создаёт или обновляет issue;
+  `pull-requests: write` оставлен как право на создание PR, если плановый
+  агент будет его открывать (сейчас он создаёт только issue). Сам агент
   `audit` пишет только в `report/` и в GitHub не ходит.
 
 ### Модель и расходы

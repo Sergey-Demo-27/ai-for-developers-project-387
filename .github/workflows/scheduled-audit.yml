@@ -19,13 +19,23 @@ env:
 
 jobs:
   audit:
-    # Workflow реагирует только на schedule и workflow_dispatch: событий от
-    # комментариев или приложений здесь нет, поэтому фильтр ботов не нужен.
-    # Агент audit работает локально и не пишет в GitHub; единственная запись —
-    # issue, которую создаёт отдельный шаг с GH_TOKEN.
+    # Плановый запуск не может прийти от бота, а ручной dispatch — может.
+    # Общее правило проекта действует и здесь: бот и само приложение не
+    # должны запускать агента.
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event.sender.type != 'Bot' &&
+       github.actor != 'opencode-agent[bot]')
+    # id-token: write — общее правило для всех агентских воркфлоу, даже если
+    # текущий audit-агент работает через OPENCODE_API_KEY.
+    # issues: write — шаг публикации issue.
+    # pull-requests: write — право открыть PR, если плановый агент будет его
+    # создавать; сейчас он создаёт только issue.
     permissions:
+      id-token: write
       contents: read
       issues: write
+      pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
