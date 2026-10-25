@@ -1,0 +1,28 @@
+name: OpenCode audit
+description: Устанавливает opencode и запускает агент audit с переданным промптом
+
+inputs:
+  prompt:
+    description: Промпт для агента audit
+    required: true
+  model:
+    description: Модель в формате provider/model
+    required: false
+    default: opencode/deepseek-v4.1-flash
+
+runs:
+  using: composite
+  steps:
+    - name: Install opencode
+      shell: bash
+      run: |
+        curl -fsSL https://opencode.ai/install | bash
+        echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+    - name: Run opencode audit
+      shell: bash
+      env:
+        PROMPT: ${{ inputs.prompt }}
+        MODEL: ${{ inputs.model }}
+      run: |
+        opencode run --standalone --auto --agent audit --model "$MODEL" "$PROMPT"

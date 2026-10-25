@@ -22,24 +22,6 @@ env:
   # Settings → Secrets and variables → Actions → Variables.
   APP_URL: ${{ vars.APP_URL }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  PROMPT: |
-    Ты — аудитор проекта «Календарь звонков» (Express + SQLite + React/Vite).
-    Прочитай report/findings.json и report/summary.md, а при необходимости —
-    полный report/lighthouse.report.json, AGENTS.md, docs/spec.md и код
-    client/ и server/, которого касаются находки.
-
-    Выбери не более трёх самых важных находок. Для каждой укажи:
-    1) что не так и почему это важно пользователю;
-    2) audit id, оценку и displayValue из отчёта;
-    3) конкретные файлы или компоненты, где исправлять;
-    4) что сделать и как проверить.
-
-    Запиши разбор на русском в report/analysis.md, без общих советов.
-    Если находок нет — напиши это одной строкой.
-
-    Не меняй исходный код, не создавай коммиты, ветки, PR и issues.
-    Не запускай Lighthouse повторно и не выдумывай данные, которых нет
-    в отчёте.
 
 jobs:
   audit:
@@ -100,21 +82,33 @@ jobs:
       - name: Сводка отчёта
         run: node .github/scripts/lighthouse-summary.mjs report/lighthouse.report.json > report/summary.md
 
-      - name: Установить opencode
-        run: |
-          curl -fsSL https://opencode.ai/install | bash
-          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
-
-      # Промпт и права заданы выше. Агент audit из opencode.json не имеет
-      # доступа к bash, сети и исходникам: только чтение кода и запись в report/.
+      # Агент audit из opencode.json не имеет доступа к bash, сети и
+      # исходникам: только чтение кода и запись в report/.
       - name: Анализ отчёта агентом
+        uses: ./.github/actions/opencode-audit
         continue-on-error: true
         timeout-minutes: 10
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-        run: |
-          opencode run --standalone --auto --agent audit \
-            --model opencode/deepseek-v4.1-flash "$PROMPT"
+        with:
+          prompt: |
+            Ты — аудитор проекта «Календарь звонков» (Express + SQLite + React/Vite).
+            Прочитай report/findings.json и report/summary.md, а при необходимости —
+            полный report/lighthouse.report.json, AGENTS.md, docs/spec.md и код
+            client/ и server/, которого касаются находки.
+
+            Выбери не более трёх самых важных находок. Для каждой укажи:
+            1) что не так и почему это важно пользователю;
+            2) audit id, оценку и displayValue из отчёта;
+            3) конкретные файлы или компоненты, где исправлять;
+            4) что сделать и как проверить.
+
+            Запиши разбор на русском в report/analysis.md, без общих советов.
+            Если находок нет — напиши это одной строкой.
+
+            Не меняй исходный код, не создавай коммиты, ветки, PR и issues.
+            Не запускай Lighthouse повторно и не выдумывай данные, которых нет
+            в отчёте.
 
       # Страховка на случай, если агент всё-таки попытается выйти за report/.
       - name: Проверить, что исходники не изменены
