@@ -37,6 +37,13 @@ jobs:
         uses: anomalyco/opencode/github@latest
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # PR агента создаёт opencode-agent[bot], у которого нет роли
+          # коллаборатора: действие проверяет права актора и падает с
+          # "does not have write permissions". Ветку в этом репозитории может
+          # создать только человек с write, а форки отсечены выше, поэтому
+          # для авторевью считаем актором владельца репозитория.
+          GITHUB_ACTOR: ${{ github.repository_owner }}
+          GITHUB_TRIGGERING_ACTOR: ${{ github.repository_owner }}
         with:
           model: opencode/deepseek-v4.1-flash
           prompt: |
