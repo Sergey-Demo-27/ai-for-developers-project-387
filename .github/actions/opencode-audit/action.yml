@@ -30,7 +30,7 @@ runs:
         mkdir -p report
         # Пишем и файл, который агент может создать сам, и финальный ответ CLI:
         # если агент не смог записать report/analysis.md, разбор не потеряется.
-        opencode run --standalone --auto --agent audit --model "$MODEL" "$PROMPT" \
+        opencode run --auto --agent audit --model "$MODEL" "$PROMPT" \
           | tee report/analysis.raw.md
         if [ -s report/analysis.md ] && [ -s report/analysis.raw.md ]; then
           if [ "$(wc -c < report/analysis.md)" -ge "$(wc -c < report/analysis.raw.md)" ]; then
