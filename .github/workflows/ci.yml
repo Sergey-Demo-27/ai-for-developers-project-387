@@ -94,6 +94,8 @@ jobs:
 
   # Собирает образ и проверяет, что при запуске контейнера сервер стартует сам
   # и отвечает на пробу готовности /health (тот же сигнал, что в `npm run smoke`).
+  # Порт задаём через PORT, а не полагаемся на дефолт из Dockerfile: так CI
+  # проверяет, что приложение действительно слушает переменную окружения.
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -101,12 +103,12 @@ jobs:
 
       - run: docker build -t call-calendar .
 
-      - run: docker run -d --name call-calendar -p 3000:3000 call-calendar
+      - run: docker run -d --name call-calendar -e PORT=8080 -p 8080:8080 call-calendar
 
       - name: Wait for /health
         run: |
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:3000/health | grep -q '"status":"ok"'; then
+            if curl -fsS http://localhost:8080/health | grep -q '"status":"ok"'; then
               echo "контейнер отвечает на /health"
               exit 0
             fi
