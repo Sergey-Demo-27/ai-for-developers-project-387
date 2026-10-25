@@ -334,6 +334,14 @@ Static Site для клиента. Перед применением blueprint �
 - [`opencode.json`](./opencode.json) — конфигурация MCP-серверов (Render MCP
   читает `RENDER_API_KEY` из окружения).
 
+## План развития
+
+Ближайшие фичи и баги собраны в [ROADMAP.md](./ROADMAP.md) и заведены как
+GitHub Issues с меткой `ready-for-agent`: [#2](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/issues/2),
+[#3](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/issues/3),
+[#4](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/issues/4),
+[#5](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/issues/5).
+
 ## Соглашение о коммитах
 
 Сообщения коммитов следуют спецификации
