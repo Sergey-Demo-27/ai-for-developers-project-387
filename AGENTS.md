@@ -107,9 +107,25 @@ committed.
   Commits (заголовок ≤ 72, scope из списка выше).
 - Авторевью — `.github/workflows/opencode-review.yml` на `pull_request`
   (`opened`, `synchronize`, `reopened`, `ready_for_review`). Оно только читает
-  и комментирует; не одобряет и не мержит.
+  и комментирует; не одобряет и не мержит. PR, созданные
+  `opencode-agent[bot]`, ревьюятся; посторонние ботовые PR пропускаются.
 - Мерж и одобрение — за человеком. После мержа release-please собирает
   release-PR; формат коммитов важен и для агента.
+
+### GitHub-воркфлоу
+
+- Команда вызова одна — `/oc`. `/opencode` не поддерживается: набор задан
+  явно через `mentions`.
+- Job выполняется только для комментариев от `OWNER`, `MEMBER` или
+  `COLLABORATOR`. Боты, включая `opencode-agent[bot]`, отсекаются, чтобы ответ
+  агента не запускал его снова.
+- Права выданы отдельно в каждом воркфлоу: у интерактивных `GITHUB_TOKEN`
+  только читает, запись идёт токеном OpenCode App через `id-token: write`.
+  `issues: write` есть только у планового аудита — для публикации issue.
+- `share: false` во всех интерактивных воркфлоу: репозиторий публичный, но
+  сессии агента по ссылке не публикуются.
+- Таблица воркфлоу, модели и решений — в README, раздел
+  [«Агентская интеграция»](./README.md#агентская-интеграция).
 
 ## Agent skills
 
@@ -118,7 +134,8 @@ committed.
 Issues and specs live as GitHub issues in this repo, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 New issues are triaged automatically by `.github/workflows/opencode-triage.yml`
-(on `issues: opened`, with a fixed prompt). The bot comment is a starting point:
+(on `issues: opened`, with a fixed prompt). Issues created by bots (for example,
+`lighthouse-audit` findings) are skipped. The bot comment is a starting point:
 the agreed definition of done belongs in the issue body, not only in the comment.
 
 ### Плановый аудит

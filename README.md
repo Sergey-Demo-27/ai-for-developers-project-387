@@ -358,18 +358,86 @@ gh workflow run scheduled-audit.yml --ref main
   набор навыков для агентов;
 - [`docs/agents/`](./docs/agents) — работа с issue tracker, triage-метками и
   доменной документацией;
-- [`.github/workflows/opencode.yml`](./.github/workflows/opencode.yml) — запуск
-  OpenCode по комментарию с `/oc` или `/opencode`. Нужен секрет
-  `OPENCODE_API_KEY`;
-- [`.github/workflows/opencode-triage.yml`](./.github/workflows/opencode-triage.yml) —
-  автотриаж новых issue на событии `issues: opened`: OpenCode с фиксированным
-  prompt оставляет разбор и предложение постановки;
-- [`.github/workflows/scheduled-audit.yml`](./.github/workflows/scheduled-audit.yml) —
-  плановый аудит Lighthouse: отчёт в артефакте, находки — в issue с меткой
-  `lighthouse-audit`;
 - [`opencode.json`](./opencode.json) — конфигурация MCP-серверов (Render MCP
   читает `RENDER_API_KEY` из окружения) и агента `audit` с ограниченными
   правами для плановой проверки.
+
+### Как позвать агента
+
+Команда одна — `/oc`. Её можно оставить в issue, в общем комментарии к PR или
+в комментарии к строке diff. `/opencode` больше не поддерживается: набор
+команд задан явно в `mentions`, чтобы он не расширялся вместе с дефолтом
+действия.
+
+Позвать агента может не каждый комментатор: job запускается только для
+`OWNER`, `MEMBER` и `COLLABORATOR`. Комментарии ботов, в том числе ответы
+`opencode-agent[bot]`, отсекаются — иначе ответ агента запускал бы его снова.
+GitHub всё равно создаёт run на каждый комментарий, но у чужих и ботовых
+событий job сразу получает статус `skipped`: агент не вызывается, минуты не
+тратятся.
+
+### Воркфлоу проекта
+
+| Воркфлоу | Событие | Модель / агент | Назначение | Права в workflow | Где смотреть |
+| --- | --- | --- | --- | --- | --- |
+| [`opencode.yml`](./.github/workflows/opencode.yml) | `issue_comment`, `pull_request_review_comment`; команда `/oc`; автор — OWNER/MEMBER/COLLABORATOR; не бот | `opencode/deepseek-v4.1-flash`, агент по умолчанию | выполняет задачу из issue, правит PR по замечаниям, создаёт коммиты и PR | `contents: read`, `id-token: write` | [Actions → opencode](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/opencode.yml) |
+| [`opencode-triage.yml`](./.github/workflows/opencode-triage.yml) | `issues: opened`; issue не от бота | `opencode/deepseek-v4.1-flash` | разбор новой issue и комментарий с планом; код не меняет | `contents: read`, `id-token: write` | [Actions → Issue triage](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/opencode-triage.yml) |
+| [`opencode-review.yml`](./.github/workflows/opencode-review.yml) | `pull_request`: `opened`, `synchronize`, `reopened`, `ready_for_review`; не draft, не форк, не посторонний бот | `opencode/deepseek-v4.1-flash` | авторевью PR, один общий комментарий; не одобряет и не мержит | `contents: read`, `id-token: write` | [Actions → opencode-review](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/opencode-review.yml) |
+| [`scheduled-audit.yml`](./.github/workflows/scheduled-audit.yml) | `schedule` (`17 3 * * *` UTC), `workflow_dispatch` | `opencode/deepseek-v4.1-flash`, агент `audit` | Lighthouse, разбор отчёта, issue с меткой `lighthouse-audit` | `contents: read`, `issues: write` | [Actions → Scheduled Lighthouse audit](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/actions/workflows/scheduled-audit.yml) |
+
+Ссылку на конкретный прогон агент добавляет в свой комментарий (`github run`).
+Логи и артефакты — на странице нужного workflow во вкладке **Actions**.
+
+### Права и токены
+
+Права выданы отдельно в каждом воркфлоу, а не наследуются от настроек
+репозитория:
+
+- во всех интерактивных воркфлоу `GITHUB_TOKEN` только читает;
+- `id-token: write` — это не право писать в репозиторий, а обмен OIDC на
+  короткоживущий токен OpenCode App. Именно им агент создаёт комментарии,
+  коммиты и PR;
+- `contents: write`, `pull-requests: write` и `issues: write` в интерактивных
+  воркфлоу поэтому не нужны;
+- единственное место с записью через `GITHUB_TOKEN` — `scheduled-audit.yml`:
+  `issues: write` нужен шагу, который создаёт или обновляет issue. Сам агент
+  `audit` пишет только в `report/` и в GitHub не ходит.
+
+### Модель и расходы
+
+Во всех воркфлоу используется `opencode/deepseek-v4.1-flash` — дешёвая модель
+с достаточным качеством. Для триажа и аудита этого хватает, а реализация и
+ревью работают по существующему коду и не требуют более дорогой модели.
+
+Параметр `variant` (уровень рассуждений) сейчас не задан: в используемой
+версии действия он не пробрасывается в запуск. Если понадобится, сначала
+нужно проверить поддержку, затем включать `low` для триажа и аудита,
+`high`/`max` для реализации.
+
+### Публикация сессий (`share`)
+
+Репозиторий публичный, поэтому по умолчанию действие расшарило бы сессию
+агента по ссылке вместе со всем контекстом. Принято решение `share: false`:
+в контекст попадают обсуждения issue/PR, промежуточные рассуждения и код до
+мержа, а постоянная публичная ссылка для учебного проекта не нужна. Если
+мейнтейнер захочет публиковать логи, он меняет `share` осознанно, а не
+получает это по умолчанию.
+
+### Самооценка работы с агентом
+
+- С первого прохода: тестовая [#9](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/issues/9)
+  (ответ на `/oc`) и автотриаж [#10](https://github.com/Sergey-Demo-27/ai-for-developers-project-387/issues/10)
+  (корректно распознал дубликат #5).
+- Кодовых задач с первого прохода пока нет: #5 (PR #12) — единственная задача,
+  которую агент вёл, и ей потребовались итерации.
+- Итерации по #5: авторевью нашло два замечания (заголовок PR не по
+  Conventional Commits, `activeSlot` брался из устаревшего снимка), а
+  `commitlint` упал на длине строки тела коммита. После двух дополнительных
+  `/oc` замечания закрыты, финальное ревью чистое, PR смержен.
+- Авторевью PR #14 и #17 — без блокирующих замечаний. На PR #11 первый прогон
+  упал на `Duplicate header: Authorization`; лечится `persist-credentials:
+  false`.
+- Задачи #2 и #3 с меткой `ready-for-agent` пока не брались.
 
 ## План развития
 
