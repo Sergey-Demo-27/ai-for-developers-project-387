@@ -727,6 +727,73 @@ describe('BookingPage', () => {
     )
   })
 
+  it('фоновый refetch помечает выбранный слот занятым, сбрасывает выбор и не отправляет бронь', async () => {
+    const takenAfterRefresh = [
+      {
+        date: TODAY,
+        slots: [
+          slot('09:00', '09:30', false),
+          slot('11:00', '11:30', false),
+          slot('12:00', '12:30', false),
+        ],
+      },
+      days[1],
+    ]
+    let slotsCalls = 0
+    const fetchMock = stubApi({
+      eventTypes: () => ({ eventTypes: [consultation] }),
+      slots: () => {
+        slotsCalls += 1
+        return slotsCalls === 1 ? { days } : { days: takenAfterRefresh }
+      },
+    })
+
+    renderWithProviders(<BookingPage />)
+    const confirm = await goToConfirmation()
+    await userEvent.type(within(confirm).getByLabelText(/Имя/), 'Иван')
+    await userEvent.type(
+      within(confirm).getByLabelText(/Email/),
+      'ivan@example.com',
+    )
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          request.url.includes('/slots'),
+        ),
+      ).toHaveLength(2),
+    )
+
+    // Слот из новой сетки занят: подтверждение закрыто, выбор сброшен.
+    expect(
+      screen.queryByRole('region', { name: 'Подтверждение записи' }),
+    ).not.toBeInTheDocument()
+    expect(await screen.findByText('Слот занят')).toBeInTheDocument()
+    expect(
+      screen.getByText('Это время уже занято. Выберите другой слот.'),
+    ).toBeInTheDocument()
+
+    const info = screen.getByRole('region', { name: 'Информация' })
+    expect(within(info).getByText('Время не выбрано')).toBeInTheDocument()
+
+    const slots = screen.getByRole('region', { name: 'Статус слотов' })
+    expect(
+      within(slots).getByRole('button', { name: '11:00 - 11:30' }),
+    ).toBeDisabled()
+    expect(
+      within(slots).getByRole('button', { name: 'Продолжить' }),
+    ).toBeDisabled()
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        request.url.includes('/bookings'),
+      ),
+    ).toBe(false)
+  })
+
   it('при 500 сохраняет введённое и снова включает кнопку', async () => {
     stubApi({
       eventTypes: () => ({ eventTypes: [consultation] }),

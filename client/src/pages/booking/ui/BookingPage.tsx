@@ -63,14 +63,21 @@ export function BookingPage() {
     eventTypes.find((eventType) => eventType.id === selectedEventTypeId) ?? null
   const selectedDay =
     slotsDays.find((day) => day.date === selectedDate) ?? null
-  // Выбранный слот действителен, только пока он свободен по текущему времени.
-  // Истёкший слот не считается выбранным: «Продолжить» гаснет, а панель
-  // «Информация» показывает «Время не выбрано».
+  // Снимок выбранного слота мог устареть после фонового обновления: сверяем его
+  // с актуальной сеткой по `start`, а не доверяем сохранённому объекту.
+  const gridSlot =
+    selectedSlot !== null && selectedDay !== null
+      ? (selectedDay.slots.find((slot) => slot.start === selectedSlot.start) ??
+        null)
+      : null
+  // Выбранный слот действителен, только пока он свободен в текущей сетке и по
+  // текущему времени. Истёкший или занятый слот не считается выбранным:
+  // «Продолжить» гаснет, а панель «Информация» показывает «Время не выбрано».
   const activeSlot =
-    selectedSlot !== null &&
+    gridSlot !== null &&
     selectedDate !== null &&
-    isSlotFree(selectedSlot, selectedDate, today, nowTime)
-      ? selectedSlot
+    isSlotFree(gridSlot, selectedDate, today, nowTime)
+      ? gridSlot
       : null
 
   // Первый setState — уже после `await`: правило react(set-state-in-effect)
@@ -257,10 +264,15 @@ export function BookingPage() {
     }
   }, [loadSlots, selectedEventTypeId])
 
-  // Слот истёк, пока гость был на подтверждении: форма возвращается к выбору
-  // слота с понятным сообщением, имя и email остаются в состоянии страницы.
-  const expiredOnConfirm =
-    step === 'confirm' && selectedSlot !== null && activeSlot === null
+  // Почему сохранённый выбор больше не доступен: время слота прошло или его
+  // заняли после фонового обновления — это разные сообщения. Имя и email
+  // остаются в состоянии страницы, гость выбирает другой слот.
+  const unavailableReason =
+    selectedSlot !== null && selectedDate !== null && activeSlot === null
+      ? selectedDate === today && selectedSlot.start <= nowTime
+        ? 'expired'
+        : 'taken'
+      : null
   const freeCount = selectedDay ? countAvailable(selectedDay, today, nowTime) : 0
   const canContinue =
     selectedEventType !== null && selectedDate !== null && activeSlot !== null
@@ -319,9 +331,18 @@ export function BookingPage() {
               />
             ) : (
               <Stack gap="md">
-                {expiredOnConfirm && (
-                  <Alert color="yellow" title="Время слота прошло">
-                    Это время уже прошло. Выберите другой слот.
+                {unavailableReason !== null && (
+                  <Alert
+                    color="yellow"
+                    title={
+                      unavailableReason === 'expired'
+                        ? 'Время слота прошло'
+                        : 'Слот занят'
+                    }
+                  >
+                    {unavailableReason === 'expired'
+                      ? 'Это время уже прошло. Выберите другой слот.'
+                      : 'Это время уже занято. Выберите другой слот.'}
                   </Alert>
                 )}
                 <ListState
