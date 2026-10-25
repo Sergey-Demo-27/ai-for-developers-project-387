@@ -1,0 +1,45 @@
+name: OpenCode audit
+description: Устанавливает opencode и запускает агент audit с переданным промптом
+
+inputs:
+  prompt:
+    description: Промпт для агента audit
+    required: true
+  model:
+    description: Модель в формате provider/model
+    required: false
+    default: opencode/deepseek-v4.1-flash
+
+runs:
+  using: composite
+  steps:
+    - name: Install opencode
+      shell: bash
+      run: |
+        curl -fsSL https://opencode.ai/install | bash
+        echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+    - name: Run opencode audit
+      shell: bash
+      env:
+        PROMPT: ${{ inputs.prompt }}
+        MODEL: ${{ inputs.model }}
+        NO_COLOR: '1'
+      run: |
+        set -o pipefail
+        mkdir -p report
+        # Пишем и файл, который агент может создать сам, и финальный ответ CLI:
+        # если агент не смог записать report/analysis.md, разбор не потеряется.
+        opencode run --standalone --auto --agent audit --model "$MODEL" "$PROMPT" \
+          | tee report/analysis.raw.md
+        if [ -s report/analysis.md ] && [ -s report/analysis.raw.md ]; then
+          if [ "$(wc -c < report/analysis.md)" -ge "$(wc -c < report/analysis.raw.md)" ]; then
+            rm -f report/analysis.raw.md
+          else
+            mv report/analysis.raw.md report/analysis.md
+          fi
+        elif [ -s report/analysis.raw.md ]; then
+          mv report/analysis.raw.md report/analysis.md
+        else
+          rm -f report/analysis.raw.md
+        fi

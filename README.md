@@ -302,11 +302,16 @@ job `docker` в CI.
 
 ## Деплой
 
-В проект 387 приложение пока не опубликовано. В репозитории лежит blueprint
-[`render.yaml`](./render.yaml) с двумя сервисами — Docker Web Service для API и
-Static Site для клиента. Перед применением blueprint проверьте имена сервисов и
-адрес бэкенда в rewrite-правиле `/api/*`: после первого деплоя туда нужно
-подставить реальный URL API проекта 387.
+Приложение опубликовано на Render:
+
+- API — <https://call-calendar-387-api.onrender.com>, проверка живости:
+  [`/health`](https://call-calendar-387-api.onrender.com/health);
+- клиент — <https://call-calendar-387-client.onrender.com>.
+
+В репозитории лежит blueprint [`render.yaml`](./render.yaml) с двумя сервисами —
+Docker Web Service для API и Static Site для клиента. Если Render добавит к
+именам суффиксы, адрес бэкенда в rewrite-правиле `/api/*` нужно обновить на
+фактический URL API.
 
 Бэкенд выкатывается Docker-образом из корневого `Dockerfile`; порт приложение
 берёт из переменной окружения `PORT`, которую Render передаёт сервису
@@ -317,6 +322,31 @@ Static Site для клиента. Перед применением blueprint �
 На free-плане инстанс засыпает после простоя: первый запрос после паузы может
 занимать до минуты. Файловая система Render эфемерна, поэтому SQLite
 пересоздаётся пустой при каждом деплое и рестарте.
+
+## Плановый аудит
+
+[`.github/workflows/scheduled-audit.yml`](./.github/workflows/scheduled-audit.yml)
+запускается раз в сутки по cron `17 3 * * *` (UTC) и вручную через
+`workflow_dispatch`. Workflow:
+
+1. проверяет, что задана переменная репозитория `APP_URL`, и «будит» Render;
+2. запускает Lighthouse CLI по публичному адресу клиента;
+3. сохраняет JSON, HTML и сводку артефактом `lighthouse-report`;
+4. отдаёт сводку агенту `audit` из [`opencode.json`](./opencode.json), который
+   пишет разбор в `report/analysis.md`;
+5. создаёт issue с меткой `lighthouse-audit` по самой серьёзной находке и не
+   дублирует уже открытую; отчёт также попадает в Job Summary.
+
+Адрес приложения не хранится в workflow. Задайте его один раз:
+**Settings → Secrets and variables → Actions → Variables → New repository
+variable**, имя `APP_URL`, значение — URL клиента. Ручной запуск:
+
+```bash
+gh workflow run scheduled-audit.yml --ref main
+```
+
+Артефакт лежит на странице прогона во вкладке **Actions** в блоке
+**Artifacts**. Находки — в issue с меткой `lighthouse-audit`.
 
 ## Агентская интеграция
 
@@ -334,8 +364,12 @@ Static Site для клиента. Перед применением blueprint �
 - [`.github/workflows/opencode-triage.yml`](./.github/workflows/opencode-triage.yml) —
   автотриаж новых issue на событии `issues: opened`: OpenCode с фиксированным
   prompt оставляет разбор и предложение постановки;
+- [`.github/workflows/scheduled-audit.yml`](./.github/workflows/scheduled-audit.yml) —
+  плановый аудит Lighthouse: отчёт в артефакте, находки — в issue с меткой
+  `lighthouse-audit`;
 - [`opencode.json`](./opencode.json) — конфигурация MCP-серверов (Render MCP
-  читает `RENDER_API_KEY` из окружения).
+  читает `RENDER_API_KEY` из окружения) и агента `audit` с ограниченными
+  правами для плановой проверки.
 
 ## План развития
 
