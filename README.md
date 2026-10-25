@@ -331,6 +331,9 @@ Static Site для клиента. Перед применением blueprint �
 - [`.github/workflows/opencode.yml`](./.github/workflows/opencode.yml) — запуск
   OpenCode по комментарию с `/oc` или `/opencode`. Нужен секрет
   `OPENCODE_API_KEY`;
+- [`.github/workflows/opencode-triage.yml`](./.github/workflows/opencode-triage.yml) —
+  автотриаж новых issue на событии `issues: opened`: OpenCode с фиксированным
+  prompt оставляет разбор и предложение постановки;
 - [`opencode.json`](./opencode.json) — конфигурация MCP-серверов (Render MCP
   читает `RENDER_API_KEY` из окружения).
 

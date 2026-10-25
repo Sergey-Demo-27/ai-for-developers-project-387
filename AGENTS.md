@@ -100,6 +100,10 @@ committed.
 
 Issues and specs live as GitHub issues in this repo, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
+New issues are triaged automatically by `.github/workflows/opencode-triage.yml`
+(on `issues: opened`, with a fixed prompt). The bot comment is a starting point:
+the agreed definition of done belongs in the issue body, not only in the comment.
+
 ### Triage labels
 
 The five canonical triage roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
