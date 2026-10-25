@@ -1,0 +1,149 @@
+name: Scheduled Lighthouse audit
+
+on:
+  schedule:
+    # GitHub cron работает в UTC. 03:17 UTC = 06:17 МСК.
+    # Один запуск в сутки; :17 выбран, чтобы не попасть в пик начала часа.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-lighthouse-audit
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+env:
+  # Адрес приложения не хранится в workflow: его задают в
+  # Settings → Secrets and variables → Actions → Variables.
+  APP_URL: ${{ vars.APP_URL }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  PROMPT: |
+    Ты — аудитор проекта «Календарь звонков» (Express + SQLite + React/Vite).
+    Прочитай report/findings.json и report/summary.md, а при необходимости —
+    полный report/lighthouse.report.json, AGENTS.md, docs/spec.md и код
+    client/ и server/, которого касаются находки.
+
+    Выбери не более трёх самых важных находок. Для каждой укажи:
+    1) что не так и почему это важно пользователю;
+    2) audit id, оценку и displayValue из отчёта;
+    3) конкретные файлы или компоненты, где исправлять;
+    4) что сделать и как проверить.
+
+    Запиши разбор на русском в report/analysis.md, без общих советов.
+    Если находок нет — напиши это одной строкой.
+
+    Не меняй исходный код, не создавай коммиты, ветки, PR и issues.
+    Не запускай Lighthouse повторно и не выдумывай данные, которых нет
+    в отчёте.
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Проверить APP_URL
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Не задана переменная репозитория APP_URL"
+            echo "Settings → Secrets and variables → Actions → Variables"
+            exit 1
+          fi
+          case "$APP_URL" in
+            https://*) ;;
+            *)
+              echo "::error::APP_URL должен начинаться с https://"
+              exit 1
+              ;;
+          esac
+
+      # Free-план Render засыпает после простоя: даём инстансу проснуться,
+      # иначе Lighthouse получит таймаут вместо страницы.
+      - name: Разбудить приложение
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsSL --max-time 60 "$APP_URL" >/dev/null; then
+              echo "приложение отвечает"
+              exit 0
+            fi
+            echo "попытка $i: приложение ещё не отвечает"
+            sleep 10
+          done
+          echo "::error::APP_URL не отвечает"
+          exit 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Run Lighthouse
+        run: |
+          mkdir -p report
+          npx --yes lighthouse@12.8.2 "$APP_URL" \
+            --output=json \
+            --output=html \
+            --output-path=report/lighthouse \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage" \
+            --quiet
+
+      - name: Сводка отчёта
+        run: node .github/scripts/lighthouse-summary.mjs report/lighthouse.report.json > report/summary.md
+
+      - name: Установить opencode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      # Промпт и права заданы выше. Агент audit из opencode.json не имеет
+      # доступа к bash, сети и исходникам: только чтение кода и запись в report/.
+      - name: Анализ отчёта агентом
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          opencode run --standalone --auto --agent audit \
+            --model opencode/deepseek-v4.1-flash "$PROMPT"
+
+      # Страховка на случай, если агент всё-таки попытается выйти за report/.
+      - name: Проверить, что исходники не изменены
+        run: |
+          unexpected=$(git status --porcelain | awk '{print $2}' | grep -v '^report/' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::Изменены файлы вне report/: $unexpected"
+            exit 1
+          fi
+
+      # GH_TOKEN есть только у этого шага: агент не может писать в GitHub.
+      - name: Опубликовать issue по находкам
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node .github/scripts/publish-lighthouse-issue.mjs
+
+      - name: Сохранить артефакт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: report/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Job Summary
+        if: always()
+        run: |
+          if [ -f report/summary.md ]; then
+            cat report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

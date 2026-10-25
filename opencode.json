@@ -9,5 +9,29 @@
         "Authorization": "Bearer {env:RENDER_API_KEY}"
       }
     }
+  },
+  "agent": {
+    "audit": {
+      "description": "Анализ отчёта Lighthouse; только чтение кода и запись в report/",
+      "mode": "primary",
+      "permission": {
+        "bash": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "task": "deny",
+        "question": "deny",
+        "doom_loop": "deny",
+        "edit": {
+          "*": "deny",
+          "report/**": "allow"
+        },
+        "read": {
+          "*": "allow",
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow"
+        }
+      }
+    }
   }
 }
