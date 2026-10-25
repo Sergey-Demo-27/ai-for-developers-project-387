@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      # Сгенерированные серверные артефакты (типы, валидация, заготовки
+      # маршрутов) закоммичены: если они разошлись с контрактом
+      # (api/openapi/openapi.yaml), этот шаг это покажет. Путь указывается
+      # относительно working-directory.
+      - run: npm run generate:api
+
+      - run: git diff --exit-code -- src/generated
+
+      - run: npm test
+
+      - run: npm run migrate
+
+      - run: npm run smoke
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - run: npm run build
+
+      # Сгенерированный клиентский SDK закоммичен: если он разошёлся с
+      # контрактом (api/openapi/openapi.yaml), этот шаг это покажет. Путь
+      # указывается относительно working-directory.
+      - run: npm run generate:api
+
+      - run: git diff --exit-code -- src/shared/api/generated
+
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run build
+
+      # Сгенерированная спецификация закоммичена: если она разошлась с .tsp,
+      # сборка это покажет. Путь указывается относительно working-directory.
+      - run: git diff --exit-code -- openapi
+
+  # Собирает образ и проверяет, что при запуске контейнера сервер стартует сам
+  # и отвечает на пробу готовности /health (тот же сигнал, что в `npm run smoke`).
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: docker build -t call-calendar .
+
+      - run: docker run -d --name call-calendar -p 3000:3000 call-calendar
+
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/health | grep -q '"status":"ok"'; then
+              echo "контейнер отвечает на /health"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "не дождались /health, логи контейнера:" >&2
+          docker logs call-calendar >&2
+          exit 1
+
+      - if: always()
+        run: docker rm -f call-calendar
+
+  commitlint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: commitlint.config.mjs

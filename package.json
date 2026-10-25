@@ -1,0 +1,21 @@
+{
+  "name": "call-calendar-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Инструменты репозитория: проверка сообщений коммитов по Conventional Commits",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "generate:api": "npm --prefix api run build && npm --prefix server run generate:api && npm --prefix client run generate:api",
+    "generate:api:check": "npm run generate:api && git diff --exit-code -- api/openapi server/src/generated client/src/shared/api/generated",
+    "lint:last": "commitlint --last",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
+    "husky": "^9.1.7"
+  }
+}

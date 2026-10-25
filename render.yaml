@@ -1,0 +1,66 @@
+# Blueprint Render: два сервиса из одного репозитория.
+#
+# Бэкенд (server/) — Docker Web Service; фронтенд (client/) — Static Site.
+# Контракт (api/) не деплоится: openapi.yaml и оба generated/ закоммичены,
+# генерацию на Render запускать не нужно.
+#
+# Free-план намеренно без persistent disk: файловая система Render эфемерна,
+# поэтому SQLite (node:sqlite) пересоздаётся пустой при каждом деплое,
+# рестарте и засыпании инстанса. Данные типов событий и броней не сохраняются.
+# Чтобы данные выживали — см. комментарий в конце файла.
+
+services:
+  - type: web
+    name: call-calendar-387-api
+    runtime: docker
+    plan: free
+    # Dockerfile и контекст сборки — в корне репозитория (как в CI и в
+    # `docker build .`). Отдельного buildCommand нет: образ собирает Render.
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Тот же /health, что использует HEALTHCHECK образа, `npm run smoke` и CI.
+    healthCheckPath: /health
+    # PORT не задаём: Render инжектит его контейнеру сам, а config.js читает
+    # process.env.PORT. DB_PATH совпадает с WORKDIR /app в Dockerfile, а каталог
+    # /app/data создаётся при сборке образа.
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /app/data/prod.db
+
+  - type: web
+    name: call-calendar-387-client
+    runtime: static
+    rootDir: client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    # У клиента нет своего .nvmrc (он в корне), а Vite 8 требует свежий Node —
+    # фиксируем версию явно, чтобы она не «поехала» с обновлением платформы.
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+    routes:
+      # Клиент ходит в API на /api/... того же origin (см.
+      # client/src/shared/api/client.ts), поэтому запросы проксируются на
+      # бэкенд через rewrite — CORS не нужен, как и в dev-прокси Vite.
+      # destination — адрес реально работающего бэкенда. После первого деплоя
+      # замените его на фактический URL сервиса call-calendar-387-api.
+      - type: rewrite
+        source: /api/*
+        destination: https://call-calendar-387-api.onrender.com/api/*
+      # SPA-fallback: любой неизвестный путь отдаёт index.html, а маршрутизацию
+      # дальше берёт на себя react-router (/booking, /bookings, /event-types).
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+# Чтобы данные SQLite переживали деплои, бэкенд нужно перевести на plan: starter
+# и добавить в его блок том:
+#
+#     disk:
+#       name: call-calendar-data
+#       mountPath: /app/data
+#       sizeGB: 1
+#
+# DB_PATH при этом уже указывает на /app/data/prod.db.
