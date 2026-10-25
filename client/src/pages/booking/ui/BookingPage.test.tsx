@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import dayjs from 'dayjs'
 import { renderWithProviders } from '../../../test/render'
@@ -727,6 +727,73 @@ describe('BookingPage', () => {
     )
   })
 
+  it('фоновый refetch помечает выбранный слот занятым, сбрасывает выбор и не отправляет бронь', async () => {
+    const takenAfterRefresh = [
+      {
+        date: TODAY,
+        slots: [
+          slot('09:00', '09:30', false),
+          slot('11:00', '11:30', false),
+          slot('12:00', '12:30', false),
+        ],
+      },
+      days[1],
+    ]
+    let slotsCalls = 0
+    const fetchMock = stubApi({
+      eventTypes: () => ({ eventTypes: [consultation] }),
+      slots: () => {
+        slotsCalls += 1
+        return slotsCalls === 1 ? { days } : { days: takenAfterRefresh }
+      },
+    })
+
+    renderWithProviders(<BookingPage />)
+    const confirm = await goToConfirmation()
+    await userEvent.type(within(confirm).getByLabelText(/Имя/), 'Иван')
+    await userEvent.type(
+      within(confirm).getByLabelText(/Email/),
+      'ivan@example.com',
+    )
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          request.url.includes('/slots'),
+        ),
+      ).toHaveLength(2),
+    )
+
+    // Слот из новой сетки занят: подтверждение закрыто, выбор сброшен.
+    expect(
+      screen.queryByRole('region', { name: 'Подтверждение записи' }),
+    ).not.toBeInTheDocument()
+    expect(await screen.findByText('Слот занят')).toBeInTheDocument()
+    expect(
+      screen.getByText('Это время уже занято. Выберите другой слот.'),
+    ).toBeInTheDocument()
+
+    const info = screen.getByRole('region', { name: 'Информация' })
+    expect(within(info).getByText('Время не выбрано')).toBeInTheDocument()
+
+    const slots = screen.getByRole('region', { name: 'Статус слотов' })
+    expect(
+      within(slots).getByRole('button', { name: '11:00 - 11:30' }),
+    ).toBeDisabled()
+    expect(
+      within(slots).getByRole('button', { name: 'Продолжить' }),
+    ).toBeDisabled()
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        request.url.includes('/bookings'),
+      ),
+    ).toBe(false)
+  })
+
   it('при 500 сохраняет введённое и снова включает кнопку', async () => {
     stubApi({
       eventTypes: () => ({ eventTypes: [consultation] }),
@@ -883,5 +950,286 @@ describe('BookingPage', () => {
     expect(
       within(slots).getByRole('button', { name: '11:00 - 11:30' }),
     ).toBeDisabled()
+  })
+
+  it('по тику убирает прошедший слот, уменьшает счётчики и сбрасывает выбор', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-15T10:59:00'))
+
+    const tickingDays = [
+      {
+        date: TODAY,
+        slots: [
+          slot('11:00', '11:30', true),
+          slot('12:00', '12:30', true),
+        ],
+      },
+      {
+        date: TOMORROW,
+        slots: [
+          slot('09:00', '09:30', true),
+          slot('09:30', '10:00', true),
+          slot('10:00', '10:30', true),
+        ],
+      },
+    ]
+    stubApi({
+      eventTypes: () => ({ eventTypes: [consultation] }),
+      slots: () => ({ days: tickingDays }),
+    })
+
+    renderWithProviders(<BookingPage />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Консультация/ }),
+    )
+
+    const slots = await screen.findByRole('region', { name: 'Статус слотов' })
+    const info = screen.getByRole('region', { name: 'Информация' })
+    expect(
+      within(slots).getByRole('button', { name: '11:00 - 11:30' }),
+    ).toBeInTheDocument()
+    expect(within(info).getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('2 св.')).toBeInTheDocument()
+
+    await userEvent.click(
+      within(slots).getByRole('button', { name: '11:00 - 11:30' }),
+    )
+    expect(
+      within(slots).getByRole('button', { name: 'Продолжить' }),
+    ).toBeEnabled()
+
+    vi.setSystemTime(new Date('2026-10-15T11:01:00'))
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+
+    expect(
+      within(slots).queryByRole('button', { name: '11:00 - 11:30' }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(slots).getByRole('button', { name: '12:00 - 12:30' }),
+    ).toBeInTheDocument()
+    expect(within(info).getByText('1')).toBeInTheDocument()
+    expect(within(info).getByText('Время не выбрано')).toBeInTheDocument()
+    expect(within(info).queryByText('11:00 - 11:30')).not.toBeInTheDocument()
+    expect(screen.getByText('1 св.')).toBeInTheDocument()
+    expect(screen.queryByText('2 св.')).not.toBeInTheDocument()
+    expect(
+      within(slots).getByRole('button', { name: 'Продолжить' }),
+    ).toBeDisabled()
+  })
+
+  it('не отправляет бронь на прошедший слот и сохраняет имя и email', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-15T10:59:00'))
+
+    const tickingDays = [
+      {
+        date: TODAY,
+        slots: [
+          slot('11:00', '11:30', true),
+          slot('12:00', '12:30', true),
+        ],
+      },
+      {
+        date: TOMORROW,
+        slots: [slot('09:00', '09:30', true)],
+      },
+    ]
+    const fetchMock = stubApi({
+      eventTypes: () => ({ eventTypes: [consultation] }),
+      slots: () => ({ days: tickingDays }),
+    })
+
+    renderWithProviders(<BookingPage />)
+    const confirm = await goToConfirmation()
+
+    await userEvent.type(within(confirm).getByLabelText(/Имя/), 'Иван')
+    await userEvent.type(
+      within(confirm).getByLabelText(/Email/),
+      'ivan@example.com',
+    )
+
+    vi.setSystemTime(new Date('2026-10-15T11:01:00'))
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+
+    expect(
+      screen.queryByRole('region', { name: 'Подтверждение записи' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Это время уже прошло. Выберите другой слот.'),
+    ).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(([request]) =>
+        request.url.includes('/bookings'),
+      ),
+    ).toBe(false)
+
+    const slots = screen.getByRole('region', { name: 'Статус слотов' })
+    expect(
+      within(slots).queryByRole('button', { name: '11:00 - 11:30' }),
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(
+      within(slots).getByRole('button', { name: '12:00 - 12:30' }),
+    )
+    await userEvent.click(
+      within(slots).getByRole('button', { name: 'Продолжить' }),
+    )
+
+    const again = await screen.findByRole('region', {
+      name: 'Подтверждение записи',
+    })
+    expect(within(again).getByLabelText(/Имя/)).toHaveValue('Иван')
+    expect(within(again).getByLabelText(/Email/)).toHaveValue(
+      'ivan@example.com',
+    )
+  })
+
+  it('после полуночи по тику перезапрашивает слоты за новым окном записи', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-15T23:59:30'))
+
+    const beforeMidnight = [
+      { date: TODAY, slots: [slot('23:00', '23:30', true)] },
+      { date: TOMORROW, slots: [slot('09:00', '09:30', true)] },
+    ]
+    // Новое окно после полуночи: сегодняшняя дата сдвинулась, добавились сутки.
+    const afterMidnight = [
+      { date: TOMORROW, slots: [slot('09:00', '09:30', true)] },
+      { date: '2026-10-17', slots: [slot('10:00', '10:30', true)] },
+    ]
+    let slotsCalls = 0
+    const fetchMock = stubApi({
+      eventTypes: () => ({ eventTypes: [consultation] }),
+      slots: () => {
+        slotsCalls += 1
+        return { days: slotsCalls === 1 ? beforeMidnight : afterMidnight }
+      },
+    })
+
+    renderWithProviders(<BookingPage />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Консультация/ }),
+    )
+
+    const calendar = await screen.findByRole('region', { name: 'Календарь' })
+    const nextWindowDay = () =>
+      within(calendar).getByRole('button', { name: /суббота, 17 октября/ })
+    // До полуночи 17 октября вне окна записи.
+    expect(nextWindowDay()).toBeDisabled()
+
+    vi.setSystemTime(new Date('2026-10-16T00:00:00'))
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+    })
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          request.url.includes('/slots'),
+        ),
+      ).toHaveLength(2),
+    )
+    // Пришёл ответ за новым окном: 17 октября стало доступно для записи.
+    expect(nextWindowDay()).toBeEnabled()
+  })
+
+  it('по возврату фокуса обновляет время и занятость слотов', async () => {
+    const refreshedDays = [
+      {
+        date: TODAY,
+        slots: [
+          slot('11:00', '11:30', true),
+          slot('12:00', '12:30', false),
+        ],
+      },
+      days[1],
+    ]
+    let slotsCalls = 0
+    const fetchMock = stubApi({
+      eventTypes: () => ({ eventTypes: [consultation] }),
+      slots: () => {
+        slotsCalls += 1
+        return { days: slotsCalls === 1 ? days : refreshedDays }
+      },
+    })
+
+    renderWithProviders(<BookingPage />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Консультация/ }),
+    )
+
+    const slots = await screen.findByRole('region', { name: 'Статус слотов' })
+    expect(
+      within(slots).getByRole('button', { name: '11:00 - 11:30' }),
+    ).toBeInTheDocument()
+
+    vi.setSystemTime(new Date('2026-10-15T11:01:00'))
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    expect(await screen.findByText('Занято')).toBeInTheDocument()
+    expect(
+      within(slots).queryByRole('button', { name: '11:00 - 11:30' }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(slots).getByRole('button', { name: '12:00 - 12:30' }),
+    ).toBeDisabled()
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          request.url.includes('/slots'),
+        ),
+      ).toHaveLength(2),
+    )
+  })
+
+  it('по возврату видимости вкладки перезапрашивает слоты без ошибки в сетке', async () => {
+    let slotsCalls = 0
+    const fetchMock = stubApi({
+      eventTypes: () => ({ eventTypes: [consultation] }),
+      slots: () => {
+        slotsCalls += 1
+        if (slotsCalls === 2) throw new TypeError('network down')
+        return { days }
+      },
+    })
+
+    renderWithProviders(<BookingPage />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Консультация/ }),
+    )
+
+    const slots = await screen.findByRole('region', { name: 'Статус слотов' })
+    expect(
+      within(slots).getByRole('button', { name: '11:00 - 11:30' }),
+    ).toBeInTheDocument()
+
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible',
+      configurable: true,
+    })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          request.url.includes('/slots'),
+        ),
+      ).toHaveLength(2),
+    )
+    // Фоновый сбой не затирает рабочую сетку.
+    expect(
+      within(slots).getByRole('button', { name: '11:00 - 11:30' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Не удалось загрузить слоты'),
+    ).not.toBeInTheDocument()
   })
 })

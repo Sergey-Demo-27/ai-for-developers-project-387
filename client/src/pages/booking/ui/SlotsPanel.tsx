@@ -1,11 +1,7 @@
 import { Box, Button, Group, Paper, ScrollArea, Stack, Text } from '@mantine/core'
 import type { Day, Slot } from '../../../shared/api'
-import {
-  currentTimeString,
-  formatSlotRange,
-  todayString,
-} from '../../../shared/lib'
-import { visibleSlots } from '../lib/slots'
+import { formatSlotRange } from '../../../shared/lib'
+import { isSlotFree, visibleSlots } from '../lib/slots'
 import { BookingActions } from './BookingActions'
 
 type SlotsPanelProps = {
@@ -15,6 +11,8 @@ type SlotsPanelProps = {
   onSelectSlot: (slot: Slot) => void
   canContinue: boolean
   onContinue: () => void
+  today: string
+  now: string
 }
 
 // Панель «Статус слотов»: строки «09:00 - 09:30» со статусом «Свободно»/«Занято».
@@ -28,10 +26,9 @@ export function SlotsPanel({
   onSelectSlot,
   canContinue,
   onContinue,
+  today,
+  now,
 }: SlotsPanelProps) {
-  const today = todayString()
-  const now = currentTimeString()
-
   return (
     <Paper
       component="section"
@@ -50,6 +47,7 @@ export function SlotsPanel({
             <ScrollArea h={320} type="auto">
               <Stack gap="xs">
                 {visibleSlots(day, today, now).map((slot) => {
+                  const free = isSlotFree(slot, day.date, today, now)
                   const selected = selectedSlot?.start === slot.start
 
                   return (
@@ -62,13 +60,13 @@ export function SlotsPanel({
                       <Button
                         variant={selected ? 'filled' : 'light'}
                         color={selected ? 'orange' : 'gray'}
-                        disabled={!slot.available}
+                        disabled={!free}
                         onClick={() => onSelectSlot(slot)}
                       >
                         {formatSlotRange(slot.start, slot.end)}
                       </Button>
-                      <Text size="sm" c={slot.available ? 'green' : 'dimmed'}>
-                        {slot.available ? 'Свободно' : 'Занято'}
+                      <Text size="sm" c={free ? 'green' : 'dimmed'}>
+                        {free ? 'Свободно' : 'Занято'}
                       </Text>
                     </Group>
                   )

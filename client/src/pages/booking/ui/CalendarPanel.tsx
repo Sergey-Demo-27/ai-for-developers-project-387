@@ -8,6 +8,8 @@ type CalendarPanelProps = {
   days: Day[]
   selectedDate: string | null
   onSelectDate: (date: string) => void
+  today: string
+  now: string
 }
 
 // Панель «Календарь». `Calendar` из `@mantine/dates` — месячная сетка со
@@ -18,8 +20,12 @@ export function CalendarPanel({
   days,
   selectedDate,
   onSelectDate,
+  today,
+  now,
 }: CalendarPanelProps) {
-  const freeByDate = new Map(days.map((day) => [day.date, countAvailable(day)]))
+  const freeByDate = new Map(
+    days.map((day) => [day.date, countAvailable(day, today, now)]),
+  )
   const minDate = days[0]?.date
   const maxDate = days[days.length - 1]?.date
 
