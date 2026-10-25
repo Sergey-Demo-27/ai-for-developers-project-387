@@ -10,11 +10,20 @@ concurrency:
 
 jobs:
   triage:
+    # Issue от аудита создаёт github-actions[bot], а разбор в ней уже есть:
+    # повторный триаж не нужен. Любые другие боты тоже отсекаются, чтобы
+    # ответ агента не запускал новый прогон.
+    if: |
+      github.event.issue.user.type != 'Bot' &&
+      github.event.sender.type != 'Bot' &&
+      github.event.issue.user.login != 'opencode-agent[bot]'
     runs-on: ubuntu-latest
+    # GITHUB_TOKEN только читает. Комментарий в issue пишет токен OpenCode
+    # App, полученный обменом OIDC (id-token: write), поэтому issues: write
+    # здесь не нужен.
     permissions:
       id-token: write
       contents: read
-      issues: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -27,6 +36,8 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
           model: opencode/deepseek-v4.1-flash
+          # Публичный репозиторий: не публикуем контекст сессии по ссылке.
+          share: false
           prompt: |
             Ты — триаж-агент проекта «Календарь звонков»:
             Express + SQLite + React/Vite, контракт API описан в api/.

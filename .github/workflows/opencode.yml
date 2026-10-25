@@ -8,24 +8,34 @@ on:
 
 jobs:
   opencode:
-    # Ответы бота не должны запускать его снова, даже если в них встретится /oc.
+    # 1. Ответ агента — тоже комментарий, поэтому боты (и сам
+    #    opencode-agent[bot]) не должны запускать агента снова.
+    # 2. В публичном репозитории комментировать может кто угодно, но звать
+    #    агента — только OWNER/MEMBER/COLLABORATOR. Остальные события
+    #    попадут в skipped и не потратят минуты.
+    # 3. Команда одна — /oc. Набор зафиксирован и здесь, и в mentions ниже.
     if: |
       github.event.comment.user.type != 'Bot' &&
-      (contains(github.event.comment.body, ' /oc') ||
-      startsWith(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, ' /opencode') ||
-      startsWith(github.event.comment.body, '/opencode'))
+      github.event.sender.type != 'Bot' &&
+      github.event.comment.user.login != 'opencode-agent[bot]' &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR') &&
+      (startsWith(github.event.comment.body, '/oc') ||
+       contains(github.event.comment.body, ' /oc'))
     runs-on: ubuntu-latest
     # Правки по двум комментариям к одному PR идут последовательно, а не
     # наперегонки за одну и ту же ветку.
     concurrency:
       group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
+    # GITHUB_TOKEN только читает. Коммиты, PR и комментарии создаёт
+    # короткоживущий токен OpenCode App, который получается обменом OIDC
+    # (id-token: write). Поэтому contents/pull-requests/issues: write
+    # здесь не нужны.
     permissions:
       id-token: write
       contents: read
-      pull-requests: read
-      issues: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -38,3 +48,9 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
           model: opencode/deepseek-v4.1-flash
+          # Набор команд задан явно, чтобы он не расширялся вместе с дефолтом
+          # action (/opencode,/oc). Фактический фильтр — if выше.
+          mentions: /oc
+          # Репозиторий публичный: по умолчанию action расшарил бы сессию.
+          # Публичные ссылки на контекст не нужны, решение — share: false.
+          share: false
