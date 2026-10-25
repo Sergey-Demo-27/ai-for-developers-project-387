@@ -29,8 +29,9 @@ jobs:
     # id-token: write — общее правило для всех агентских воркфлоу, даже если
     # текущий audit-агент работает через OPENCODE_API_KEY.
     # issues: write — шаг публикации issue.
-    # pull-requests: write — право открыть PR, если плановый агент будет его
-    # создавать; сейчас он создаёт только issue.
+    # pull-requests: write — требование чек-листа: у планового воркфлоу должны
+    # быть права на issue и PR. Сейчас агент создаёт только issue; право
+    # зарезервировано под будущий шаг создания PR.
     permissions:
       id-token: write
       contents: read
