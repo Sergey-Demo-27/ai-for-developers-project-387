@@ -12,19 +12,22 @@ jobs:
   review:
     # Черновики не ревьюим: ready_for_review снимает draft и запускает ревью.
     # PR из форков сюда не пускаем: у них read-only токен и нет секретов.
+    # События PR не порождают ответ-комментарий, поэтому петли здесь нет.
+    # Ботовый автор PR — это как раз opencode-agent[bot], его PR ревьюить
+    # нужно; посторонние ботовые PR (release-please, dependabot) пропускаем.
     if: |
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.sender.type != 'Bot' ||
+       github.event.pull_request.user.login == 'opencode-agent[bot]')
     runs-on: ubuntu-latest
+    # GITHUB_TOKEN только читает. Комментарий публикует токен OpenCode App,
+    # полученный обменом OIDC (id-token: write): у GITHUB_TOKEN на
+    # pull_request-событиях в этом репозитории не хватает прав на запись.
+    # Prompt запрещает агенту approve и merge.
     permissions:
-      # Read-only для GITHUB_TOKEN. Комментарий публикует токен OpenCode App,
-      # полученный обменом OIDC (id-token: write): у GITHUB_TOKEN на
-      # pull_request-событиях в этом репозитории не хватает прав на запись.
-      # Prompt запрещает агенту approve и merge.
       id-token: write
       contents: read
-      pull-requests: read
-      issues: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -46,6 +49,8 @@ jobs:
           GITHUB_TRIGGERING_ACTOR: ${{ github.repository_owner }}
         with:
           model: opencode/deepseek-v4.1-flash
+          # Публичный репозиторий: не публикуем контекст сессии по ссылке.
+          share: false
           prompt: |
             Ты — ревьюер pull request в проекте «Календарь звонков»
             (Express + SQLite + React/Vite + TypeSpec).
