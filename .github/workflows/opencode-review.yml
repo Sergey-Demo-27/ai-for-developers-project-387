@@ -1,0 +1,73 @@
+name: opencode-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: opencode-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Черновики не ревьюим: ready_for_review снимает draft и запускает ревью.
+    # PR из форков сюда не пускаем: у них read-only токен и нет секретов.
+    if: |
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      # Read-only для GITHUB_TOKEN. Комментарий публикует токен OpenCode App,
+      # полученный обменом OIDC (id-token: write): у GITHUB_TOKEN на
+      # pull_request-событиях в этом репозитории не хватает прав на запись.
+      # Prompt запрещает агенту approve и merge.
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Токен для git настраивает само действие после обмена OIDC;
+          # иначе в extraheader окажутся два Authorization и git упадёт.
+          persist-credentials: false
+
+      - name: Run opencode review
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode/deepseek-v4.1-flash
+          prompt: |
+            Ты — ревьюер pull request в проекте «Календарь звонков»
+            (Express + SQLite + React/Vite + TypeSpec).
+
+            Прочитай AGENTS.md, GLOSSARY.md, docs/spec.md и CONTRIBUTING.md.
+            Изучи diff и целиком изменённые файлы, а не только hunk'и.
+
+            Проверь:
+            1. Связь с issue: в описании есть `Closes #N`, изменения
+               соответствуют постановке и её «Что считается исправлением».
+            2. Conventional Commits: заголовок ≤ 72 символов, тип и scope
+               из списка (server, client, db, api, ui, ci, deps, docs, main),
+               без точки в конце.
+            3. client/: Feature-Sliced Design (импорты только вниз и через
+               index.ts), react-router, отсутствие ручных правок в generated/.
+            4. api/: контракт меняется только в .tsp, openapi.yaml и
+               generated-файлы пересобраны и закоммичены.
+            5. server/: Ajv-валидация в схеме, смысловые правила в handlers,
+               идемпотентные миграции, без dotenv.
+            6. Типы и очевидные ошибки: any, небезопасные приведения, забытые
+               зависимости useEffect, гонки запросов, обработка ошибок.
+            7. Тесты: покрывают новое поведение, существующие сценарии не сломаны.
+
+            Оставь в PR один общий комментарий на русском:
+            - итог, что проверено;
+            - замечания списком: файл:строка, что не так и как исправить;
+            - если замечаний нет — так и напиши и перечисли проверенное.
+
+            Только ревью: не меняй файлы, не коммить, не пушь, не создавай
+            review, не одобряй и не мержи PR. Не используй команду /oc
+            в тексте комментария. Не выдумывай требования, которых нет
+            в AGENTS.md, docs/spec.md или диффе.
