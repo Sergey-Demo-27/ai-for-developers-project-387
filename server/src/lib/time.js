@@ -37,6 +37,26 @@ export function addDays(dateString, days) {
   return `${shifted.getUTCFullYear()}-${shiftedMonth}-${shiftedDay}`;
 }
 
+// Существует ли календарная дата `YYYY-MM-DD`: схема проверяет только форму
+// строки, поэтому `2026-10-32` или `2026-02-30` нужно отсекать отдельно.
+export function isCalendarDate(dateString) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (month < 1 || month > 12 || day < 1) return false;
+
+  // День 0 следующего месяца — последний день текущего. `setUTCFullYear`
+  // (а не `Date.UTC`) нужен, чтобы годы 0–99 не превращались в 1900–1999.
+  const lastDayOfMonth = new Date(0);
+  lastDayOfMonth.setUTCFullYear(year, month, 0);
+
+  return day <= lastDayOfMonth.getUTCDate();
+}
+
 // `HH:MM` → минуты от полуночи. Формат гарантирован схемой контракта,
 // поэтому разбор без проверок.
 export function parseTimeToMinutes(timeString) {

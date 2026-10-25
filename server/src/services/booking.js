@@ -1,14 +1,15 @@
 // Смысловые правила тела `POST /api/bookings`, которые схема контракта не
-// выражает (docs/spec.md, «Валидация»): окно записи, реальность слота,
-// непустое после trim имя и формат email.
+// выражает (docs/spec.md, «Валидация»): существование календарной даты, окно
+// записи, реальность слота, непустое после trim имя и формат email.
 //
-// Типы, обязательность, длины и формат `date`/`start` проверяет схема — здесь
+// Типы, обязательность, длины и форму `date`/`start` проверяет схема — здесь
 // они не дублируются. Функция чистая: «сегодня» и текущие минуты приходят
 // снаружи, как и у сетки слотов (`services/slots.js`).
 
 import {
   addDays,
   BOOKING_WINDOW_DAYS,
+  isCalendarDate,
   parseTimeToMinutes,
 } from '../lib/time.js';
 import { slotStarts } from './slots.js';
@@ -40,9 +41,13 @@ export function validateBooking({
   const details = [];
   const startMinutes = parseTimeToMinutes(start);
 
-  const lastDate = addDays(today, BOOKING_WINDOW_DAYS - 1);
-  if (date < today || date > lastDate) {
-    details.push({ field: 'date', message: 'Дата вне окна записи' });
+  if (!isCalendarDate(date)) {
+    details.push({ field: 'date', message: 'Дата не существует' });
+  } else {
+    const lastDate = addDays(today, BOOKING_WINDOW_DAYS - 1);
+    if (date < today || date > lastDate) {
+      details.push({ field: 'date', message: 'Дата вне окна записи' });
+    }
   }
 
   // Слот существует, только если его начало лежит на сетке типа

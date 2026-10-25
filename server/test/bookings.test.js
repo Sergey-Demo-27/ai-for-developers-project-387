@@ -289,6 +289,22 @@ test('дата вне окна записи даёт 400 по полю date', as
   }
 });
 
+test('несуществующая календарная дата даёт 400 по полю date', async () => {
+  const id = await createEventType(server.baseUrl);
+
+  // 32 октября и 30 февраля проходят проверку формы `YYYY-MM-DD`, но таких
+  // дней не существует. 13-й месяц тоже отсекается здесь, а не схемой.
+  for (const date of ['2026-10-32', '2026-02-30', '2026-13-01']) {
+    const res = await postBooking(server.baseUrl, bookingBody(id, { date }));
+
+    assert.equal(res.status, 400, `ожидали 400 для даты «${date}»`);
+
+    const body = await res.json();
+    assert.equal(body.error.code, 'validation_error');
+    assert.deepEqual(fields(body), ['date']);
+  }
+});
+
 test('слот сегодняшнего дня с прошедшим началом даёт 400 по полю start', async () => {
   const midday = await startAt(new Date(2026, 9, 20, 12, 0));
 
