@@ -99,8 +99,9 @@ const existing = JSON.parse(
 
 const duplicate = existing.find((issue) => (issue.body ?? '').includes(marker))
 if (duplicate) {
-  console.log(`Находка уже отслеживается в issue #${duplicate.number}`)
-  writeFileSync('report/created-issues.md', `Уже существует: #${duplicate.number}\n`)
+  gh(['issue', 'edit', String(duplicate.number), '--body-file', 'report/issue.md'])
+  console.log(`Находка уже отслеживается: issue #${duplicate.number} обновлён`)
+  writeFileSync('report/created-issues.md', `Обновлён: #${duplicate.number}\n`)
   process.exit(0)
 }
 
