@@ -121,6 +121,19 @@ New issues are triaged automatically by `.github/workflows/opencode-triage.yml`
 (on `issues: opened`, with a fixed prompt). The bot comment is a starting point:
 the agreed definition of done belongs in the issue body, not only in the comment.
 
+### Плановый аудит
+
+- `.github/workflows/scheduled-audit.yml` запускает Lighthouse раз в сутки
+  (cron `17 3 * * *` UTC) и вручную. Адрес клиента хранится только в переменной
+  репозитория `vars.APP_URL`, в YAML его нет.
+- Отчёт сохраняется артефактом `lighthouse-report`; находки публикуются как
+  issue с меткой `lighthouse-audit`. Повторная находка не дублируется: в теле
+  issue есть скрытый маркер с audit id.
+- Разбор пишет агент `audit` из `opencode.json`: ему запрещены bash, сеть и
+  правки вне `report/`. Issue создаёт отдельный шаг с `GH_TOKEN`, а не агент.
+- GitHub Action `anomalyco/opencode/github` не поддерживает `schedule` и
+  `workflow_dispatch`, поэтому workflow запускает `opencode run` напрямую.
+
 ### Triage labels
 
 The five canonical triage roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
