@@ -94,6 +94,23 @@ committed.
   in the `app/routes` slice, and route path constants live in `shared/routes`
   (both `widgets/header` and `pages/*` read them, so they cannot live above).
 
+## Pull request и ревью
+
+- Задачу из issue агент берёт по комментарию `/oc` в issue и открывает PR
+  из ветки `opencode/issue<N>-...`; в описании — `Closes #N`, что и почему,
+  список проверок.
+- Замечания человек оставляет двумя каналами: общий комментарий в обсуждении
+  (`issue_comment`) и комментарий к строке diff (`pull_request_review_comment`).
+  В обоих — `/oc`; файл и строку в тексте не дублируем, контекст приходит
+  из позиции комментария.
+- Агент правит ту же ветку новыми коммитами; каждый коммит — Conventional
+  Commits (заголовок ≤ 72, scope из списка выше).
+- Авторевью — `.github/workflows/opencode-review.yml` на `pull_request`
+  (`opened`, `synchronize`, `reopened`, `ready_for_review`). Оно только читает
+  и комментирует; не одобряет и не мержит.
+- Мерж и одобрение — за человеком. После мержа release-please собирает
+  release-PR; формат коммитов важен и для агента.
+
 ## Agent skills
 
 ### Issue tracker
